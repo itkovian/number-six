@@ -1,5 +1,7 @@
-{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving,
-        ExistentialQuantification #-}
+--------------------------------------------------------------------------------
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
 module NumberSix.Irc
     ( -- * Core types
       IrcConfig (..)
@@ -53,34 +55,43 @@ module NumberSix.Irc
 
       -- * Utility
     , modifyGods
+
+      -- * SQL
+    , withDatabase
     ) where
 
-import Control.Concurrent (MVar, readMVar, modifyMVar_)
-import Control.Applicative ((<$>))
-import Control.Monad (when)
-import Control.Monad.Reader (MonadReader, ReaderT, ask, runReaderT)
-import Control.Monad.Trans (MonadIO, liftIO)
-import Data.Char (toUpper)
 
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as SB
-import qualified Data.ByteString.Char8 as SBC
+--------------------------------------------------------------------------------
+import           Control.Applicative      ((<$>))
+import           Control.Concurrent       (MVar, modifyMVar_, readMVar)
+import           Control.Concurrent.MVar  (withMVar)
+import           Control.Monad            (when)
+import           Control.Monad.Reader     (MonadReader, ReaderT, ask,
+                                           runReaderT)
+import           Control.Monad.Trans      (MonadIO, liftIO)
+import qualified Data.ByteString.Char8    as SBC
+import           Data.Text                (Text)
+import qualified Data.Text                as T
+import qualified Database.SQLite.Simple   as Sqlite
 
-import NumberSix.Message
-import NumberSix.Message.Encode (encodePrefix)
 
+--------------------------------------------------------------------------------
+import           NumberSix.Message
+import           NumberSix.Message.Encode (encodePrefix)
+
+
+--------------------------------------------------------------------------------
 -- | User-specified IRC configuration
---
 data IrcConfig = IrcConfig
-    { ircNick        :: ByteString
-    , ircRealName    :: ByteString
-    , ircChannels    :: [ByteString]
-    , ircHost        :: ByteString
+    { ircNick        :: Text
+    , ircRealName    :: Text
+    , ircChannels    :: [Text]
+    , ircHost        :: Text
     , ircPort        :: Int
-    , ircGodPassword :: ByteString
-    , ircDatabase    :: String
+    , ircGodPassword :: Text
+    , ircDatabase    :: FilePath
     , -- (NickServ service name, auth line)
-      ircNickServ    :: Maybe (ByteString, ByteString)
+      ircNickServ    :: Maybe (Text, Text)
     }
 
 -- | An IRC God
@@ -94,10 +105,11 @@ instance Show God where
 -- | Represents the outer IRC state
 --
 data IrcEnvironment = IrcEnvironment
-    { ircConfig   :: IrcConfig
-    , ircWriter   :: Message -> IO ()
-    , ircLogger   :: ByteString -> IO ()
-    , ircGods     :: MVar [God]
+    { ircConfig     :: IrcConfig
+    , ircConnection :: MVar Sqlite.Connection
+    , ircWriter     :: Message -> IO ()
+    , ircLogger     :: Text -> IO ()
+    , ircGods       :: MVar [God]
     }
 
 -- | Represents the internal IRC state
@@ -116,7 +128,7 @@ newtype Irc a = Irc {unIrc :: ReaderT IrcState IO a}
                        )
 
 data UninitializedHandler = forall a.
-        UninitializedHandler ByteString [a -> Irc ()] (Irc a)
+        UninitializedHandler Text [a -> Irc ()] (Irc a)
 
 instance Eq UninitializedHandler where
     (UninitializedHandler x _ _) == (UninitializedHandler y _ _) = x == y
@@ -124,7 +136,7 @@ instance Eq UninitializedHandler where
 -- | Handler for IRC messages
 --
 data Handler = Handler
-    { handlerName  :: ByteString
+    { handlerName  :: Text
     , handlerHooks :: [Irc ()]
     }
 
@@ -135,27 +147,27 @@ runIrc irc state = runReaderT (unIrc irc) state
 
 -- | Get our own nick
 --
-getNick :: Irc ByteString
+getNick :: Irc Text
 getNick = ircNick . ircConfig . ircEnvironment <$> ask
 
 -- | Get our real name
 --
-getRealName :: Irc ByteString
+getRealName :: Irc Text
 getRealName = ircRealName . ircConfig . ircEnvironment <$> ask
 
 -- | Get the host we are connected to
 --
-getHost :: Irc ByteString
+getHost :: Irc Text
 getHost = ircHost . ircConfig . ircEnvironment <$> ask
 
 -- | Get the channels we are supposed to join
 --
-getChannels :: Irc [ByteString]
+getChannels :: Irc [Text]
 getChannels = ircChannels . ircConfig . ircEnvironment <$> ask
 
 -- | Get the god password
 --
-getGodPassword :: Irc ByteString
+getGodPassword :: Irc Text
 getGodPassword =
     ircGodPassword . ircConfig . ircEnvironment <$> ask
 
@@ -168,7 +180,7 @@ getGods = do
 
 -- | Get the name of the current handler
 --
-getHandlerName :: Irc ByteString
+getHandlerName :: Irc Text
 getHandlerName = handlerName . ircHandler <$> ask
 
 -- | Get the IRC prefix
@@ -179,19 +191,19 @@ getPrefix = do
     return prefix
 
 -- | Obtain the actual IRC command: the result from this function will always be
--- in lowercase.
+-- in uppercase.
 --
-getCommand :: Irc ByteString
-getCommand = SBC.map toUpper . messageCommand . ircMessage <$> ask
+getCommand :: Irc Text
+getCommand = T.toUpper . messageCommand . ircMessage <$> ask
 
 -- | Obtain the IRC parameters given
 --
-getParameters :: Irc [ByteString]
+getParameters :: Irc [Text]
 getParameters = messageParameters . ircMessage <$> ask
 
 -- | Obtain the sender of the command to which this handler is reacting
 --
-getSender :: Irc ByteString
+getSender :: Irc Text
 getSender = do
     prefix <- messagePrefix . ircMessage <$> ask
     return $ case prefix of
@@ -201,14 +213,14 @@ getSender = do
 
 -- | Get the active channel
 --
-getChannel :: Irc ByteString
+getChannel :: Irc Text
 getChannel = do
     (channel : _) <- getParameters
     return channel
 
 -- | Obtain the message text of the command to which this handler is reacting
 --
-getMessageText :: Irc ByteString
+getMessageText :: Irc Text
 getMessageText = do
     params <- getParameters
     return $ case params of
@@ -217,43 +229,43 @@ getMessageText = do
 
 -- | Report some message -- it will be logged
 --
-report :: ByteString  -- ^ Message to log
-       -> Irc ()      -- ^ Result
+report :: Text    -- ^ Message to log
+       -> Irc ()  -- ^ Result
 report message = do
     logger <- ircLogger . ircEnvironment <$> ask
     liftIO $ logger $ "REPORTED: " <> message
 
 -- | Write a raw message to the IRC socket
 --
-writeMessage :: ByteString    -- ^ IRC command
-             -> [ByteString]  -- ^ Parameters
-             -> Irc ()        -- ^ Result
+writeMessage :: Text    -- ^ IRC command
+             -> [Text]  -- ^ Parameters
+             -> Irc ()  -- ^ Result
 writeMessage command parameters = do
     writer <- ircWriter . ircEnvironment <$> ask
     liftIO $ writer $ makeMessage command parameters
 
 -- | Write a message in a specific channel
 --
-writeChannel :: ByteString  -- ^ Channel to write in
-             -> ByteString  -- ^ Message text
-             -> Irc ()      -- ^ Result
+writeChannel :: Text    -- ^ Channel to write in
+             -> Text    -- ^ Message text
+             -> Irc ()  -- ^ Result
 writeChannel destination string =
     writeMessage "PRIVMSG" [destination, string']
   where
-    string' | SB.length string <= 400 = string
-            | otherwise = SB.take 400 string <> "..."
+    string' | T.length string <= 400 = string
+            | otherwise              = T.take 400 string <> "..."
 
 -- | Write a message to a specific nick
 --
-writeNick :: ByteString  -- ^ The user's nickname
-          -> ByteString  -- ^ Message text
+writeNick :: Text  -- ^ The user's nickname
+          -> Text  -- ^ Message text
           -> Irc ()
 writeNick = writeChannel
 
 -- | Write a message to the active channel
 --
-write :: ByteString  -- ^ Message text
-      -> Irc ()      -- ^ Result
+write :: Text    -- ^ Message text
+      -> Irc ()  -- ^ Result
 write string = do
     channel <- getChannel
     nick <- getNick
@@ -272,30 +284,30 @@ write string = do
 --
 -- > jaspervdj: Hello there
 --
-writeTo :: ByteString  -- ^ Username to address
-        -> ByteString  -- ^ Message text
-        -> Irc ()      -- ^ Result
+writeTo :: Text    -- ^ Username to address
+        -> Text    -- ^ Message text
+        -> Irc ()  -- ^ Result
 writeTo userName message = write $ userName <> ": " <> message
 
 -- | Write a message to the active channel, addressed to the user who fired
 -- the current handler. See 'writeChannelTo' as well.
 --
-writeReply :: ByteString  -- ^ Message text
-           -> Irc ()      -- ^ Result
+writeReply :: Text    -- ^ Message text
+           -> Irc ()  -- ^ Result
 writeReply message = do
     sender <- getSender
     writeTo sender message
 
 -- | Create a handler
 --
-makeHandler :: ByteString            -- ^ Handler name
+makeHandler :: Text                  -- ^ Handler name
             -> [Irc ()]              -- ^ Hooks
             -> UninitializedHandler  -- ^ Resulting handler
 makeHandler name hooks = makeHandlerWith name (map const hooks) (return ())
 
 -- | Create a handler with an initialization procedure
 --
-makeHandlerWith :: ByteString            -- ^ Handler name
+makeHandlerWith :: Text                  -- ^ Handler name
                 -> [a -> Irc ()]         -- ^ Hooks
                 -> Irc a                 -- ^ Initialization
                 -> UninitializedHandler  -- ^ Resulting handler
@@ -319,9 +331,9 @@ initializeHandler (UninitializedHandler name hooks ini) state = do
 
 -- | Execute an 'Irc' action only if the command given is the command received.
 --
-onCommand :: ByteString  -- ^ Command to check for
-          -> Irc ()      -- ^ Irc action to execute if match
-          -> Irc ()      -- ^ Result
+onCommand :: Text    -- ^ Command to check for
+          -> Irc ()  -- ^ Irc action to execute if match
+          -> Irc ()  -- ^ Result
 onCommand command irc = do
     actualCommand <- getCommand
     when (actualCommand ==? command) irc
@@ -340,9 +352,17 @@ onGod irc = do
 -- | Change the list of gods
 --
 modifyGods :: ([God] -> [God])  -- ^ Modification
-           -> ByteString        -- ^ Password
+           -> Text              -- ^ Password
            -> Irc ()
 modifyGods f password = do
     password' <- getGodPassword
     mvar <- ircGods . ircEnvironment <$> ask
     when (password == password') $ liftIO $ modifyMVar_ mvar $ return . f
+
+
+--------------------------------------------------------------------------------
+-- | Execute a statement
+withDatabase :: (Sqlite.Connection -> IO a) -> Irc a
+withDatabase f = do
+    mvar <- ircConnection . ircEnvironment <$> ask
+    liftIO $ withMVar mvar f

@@ -1,3 +1,4 @@
+--------------------------------------------------------------------------------
 -- | Main module, containing the 'numberSix' function needed to launch your bot.
 {-# LANGUAGE OverloadedStrings #-}
 module NumberSix
@@ -11,8 +12,9 @@ import           Control.Applicative     ((<$>))
 import           Control.Concurrent      (forkIO)
 import           Control.Concurrent.MVar (newMVar)
 import           Control.Monad           (forM, forM_)
-import qualified Data.ByteString.Char8   as SBC
 import           Data.Maybe              (catMaybes)
+import qualified Data.Text               as T
+import qualified Database.SQLite.Simple  as Sqlite
 import           Prelude                 hiding (catch)
 import           System.Environment      (getProgName)
 
@@ -30,8 +32,9 @@ import           NumberSix.SandBox
 application :: Logger -> [UninitializedHandler] -> IrcConfig -> Application
 application logger uninitialized config writer = do
     -- Create the environment
+    db   <- newMVar =<< Sqlite.open (ircDatabase config)
     gods <- newMVar []
-    let environment = IrcEnvironment config writer logger gods
+    let environment = IrcEnvironment config db writer logger gods
 
     -- Initialize handlers
     handlers' <- fmap catMaybes $ forM uninitialized $
@@ -68,5 +71,5 @@ numberSixWith :: [UninitializedHandler] -> IrcConfig -> IO ()
 numberSixWith handlers' config = do
     logName <- (++ ".log") <$> getProgName
     logger  <- makeLogger logName
-    runApplication logger (SBC.unpack $ ircHost config) (ircPort config) $
+    runApplication logger (T.unpack $ ircHost config) (ircPort config) $
         application logger handlers' config

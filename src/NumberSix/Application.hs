@@ -1,3 +1,4 @@
+--------------------------------------------------------------------------------
 {-# LANGUAGE OverloadedStrings #-}
 module NumberSix.Application
     ( Application
@@ -12,6 +13,8 @@ import           Data.ByteString           (ByteString)
 import qualified Data.ByteString           as B
 import qualified Data.ByteString.Char8     as BC
 import           Data.Monoid               (mappend, mempty)
+import qualified Data.Text                 as T
+import qualified Data.Text.Encoding        as T
 import           Network.Socket            (Socket)
 import qualified Network.Socket            as S
 import           Network.Socket.ByteString
@@ -83,12 +86,12 @@ readMessage logger sock state = do
         Nothing             -> return Nothing
         Just (line, state') -> case decode line of
             Just msg -> do
-                logger $ "IN: " `B.append` line
+                logger $ T.pack $ "IN: " ++ show msg
                 return $ Just (msg, state')
             Nothing  -> do
                 logger $
-                    "NumberSix.Socket.readMessage: Can't parse: " `B.append`
-                    line
+                    "NumberSix.Socket.readMessage: Can't parse: " `T.append`
+                    T.decodeUtf8 line
                 readMessage logger sock state'
 
 
@@ -109,5 +112,5 @@ makeMessageWriter logger sock = do
     return $ \msg -> do
         let bs  = encode msg
             san = B.take maxLineLength $ B.takeWhile (`B.notElem` "\r\n") bs
-        logger $ "OUT: " `B.append` san
+        logger $ T.pack $ "OUT: " ++ show msg
         lineWriter san

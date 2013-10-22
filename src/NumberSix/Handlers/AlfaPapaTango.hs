@@ -1,19 +1,30 @@
+--------------------------------------------------------------------------------
 {-# LANGUAGE OverloadedStrings #-}
 module NumberSix.Handlers.AlfaPapaTango
     ( handler
     ) where
 
-import qualified Data.ByteString.Char8 as BC
-import qualified Data.Char as DC (toLower)
-import qualified Data.Map as M
 
+--------------------------------------------------------------------------------
+import           Data.Char      (toLower)
+import qualified Data.Map       as M
+import           Data.Maybe     (mapMaybe)
+import           Data.Text      (Text)
+import qualified Data.Text      as T
+
+
+--------------------------------------------------------------------------------
 import           NumberSix.Bang
 import           NumberSix.Irc
 import           NumberSix.Message
 
+
+--------------------------------------------------------------------------------
 handler :: UninitializedHandler
 handler = makeHandler "AlfaPapaTango" [alfaPapaTangoHook]
 
+
+--------------------------------------------------------------------------------
 alfaPapaTangoHook :: Irc ()
 alfaPapaTangoHook = onBangCommand "!nato" $ do
     text <- getBangCommandText
@@ -21,37 +32,43 @@ alfaPapaTangoHook = onBangCommand "!nato" $ do
     let replyText = translate text
     write $ sender <> replyText
 
-letterMap :: M.Map Char BC.ByteString
-letterMap = M.fromList $ zip ['a'..'z'] $ map BC.pack
-    [ " alfa"
-    , " bravo"
-    , " charlie"
-    , " delta"
-    , " echo"
-    , " foxtrot"
-    , " golf"
-    , " hotel"
-    , " india"
-    , " julliett"
-    , " kilo"
-    , " lima"
-    , " mike"
-    , " november"
-    , " oscar"
-    , " papa"
-    , " quebec"
-    , " romeo"
-    , " sierra"
-    , " tango"
-    , " uniform"
-    , " victor"
-    , " whiskey"
-    , " xray"
-    , " yankee"
-    , " zulu"
+
+--------------------------------------------------------------------------------
+letterMap :: M.Map Char Text
+letterMap = M.fromList $
+    [ (T.head w, w)
+    | w <-
+        [ "alfa"
+        , "bravo"
+        , "charlie"
+        , "delta"
+        , "echo"
+        , "foxtrot"
+        , "golf"
+        , "hotel"
+        , "india"
+        , "julliett"
+        , "kilo"
+        , "lima"
+        , "mike"
+        , "november"
+        , "oscar"
+        , "papa"
+        , "quebec"
+        , "romeo"
+        , "sierra"
+        , "tango"
+        , "uniform"
+        , "victor"
+        , "whiskey"
+        , "xray"
+        , "yankee"
+        , "zulu"
+        ]
     ]
 
-translate :: BC.ByteString -> BC.ByteString
-translate letters = BC.tail $ BC.concatMap (\c -> case M.lookup (DC.toLower c) letterMap of 
-                                                    Just s -> s
-                                                    Nothing -> BC.pack [' ',c]) letters
+
+--------------------------------------------------------------------------------
+translate :: Text -> Text
+translate = T.unwords .
+    mapMaybe (\c -> M.lookup (toLower c) letterMap) . T.unpack
