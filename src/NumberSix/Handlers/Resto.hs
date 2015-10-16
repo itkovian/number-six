@@ -63,6 +63,7 @@ resto arg = do
         url    = "http://zeus.ugent.be/hydra/api/1.0/resto/week/" ++
             dropWhile (== '0') week ++ ".json"
 
+    print url
     http (T.pack url) id >>= \bs -> case parseJsonEither bs of
         Left _             -> randomError
         Right (WeekMenu m) -> return $ case M.lookup (T.pack day) m of
@@ -73,6 +74,8 @@ resto arg = do
     days "morgen"             = (1, "tomorrow")
     days "day after tomorrow" = (2, "the day after tomorrow")
     days "overmorgen"         = (2, "the day after tomorrow")
+    days "overovermorgen"     = (3, "the day after the day after tomorrow")
+    days "overoverovermorgen" = (4, "the day after the day after the day after tomorrow")
     days _                    = (0, "today")
 
 
