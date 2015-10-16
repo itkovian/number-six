@@ -90,6 +90,7 @@ data IrcConfig = IrcConfig
     , ircPort        :: Int
     , ircGodPassword :: Text
     , ircDatabase    :: FilePath
+    , ircChannelLogDir :: String
     , -- (NickServ service name, auth line)
       ircNickServ    :: Maybe (Text, Text)
     }

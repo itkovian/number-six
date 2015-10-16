@@ -32,6 +32,7 @@ import qualified NumberSix.Handlers.Quote
 import qualified NumberSix.Handlers.Reddit
 import qualified NumberSix.Handlers.Remind
 import qualified NumberSix.Handlers.Resto
+import qualified NumberSix.Handlers.RotatingLogger
 import qualified NumberSix.Handlers.Rr
 import qualified NumberSix.Handlers.Say
 import qualified NumberSix.Handlers.Seen
@@ -80,6 +81,7 @@ handlers =
     , NumberSix.Handlers.Reddit.handler
     , NumberSix.Handlers.Remind.handler
     , NumberSix.Handlers.Resto.handler
+    , NumberSix.Handlers.RotatingLogger.handler
     , NumberSix.Handlers.Rr.handler
     , NumberSix.Handlers.Say.handler
     , NumberSix.Handlers.Seen.handler
