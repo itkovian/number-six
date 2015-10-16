@@ -16,7 +16,7 @@ import qualified Data.Text      as T
 --------------------------------------------------------------------------------
 import           NumberSix.Bang
 import           NumberSix.Irc
-import           NumberSix.Message
+import           NumberSix.Message hiding (toLower)
 
 
 --------------------------------------------------------------------------------
