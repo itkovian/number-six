@@ -9,14 +9,14 @@ import           Control.Applicative     ((<$>))
 import           Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar)
 import           Control.Monad.Reader    (ask)
 import           Control.Monad.Trans     (liftIO)
-import           Data.ByteString         (ByteString)
-import qualified Data.ByteString.Char8   as BC
 import qualified Data.Map                as Map
+import           Data.Text               (Text, concat, pack, unpack)
+import qualified Data.Text.IO            as T
+import           Data.Time               (defaultTimeLocale)
 import           Data.Time.Clock         (getCurrentTime)
 import           Data.Time.Format        (formatTime)
 import           System.Directory        (createDirectoryIfMissing)
 import           System.FilePath.Posix   (joinPath)
-import           System.Locale           (defaultTimeLocale)
 import           System.IO               as IO
 --------------------------------------------------------------------------------
 
@@ -31,8 +31,8 @@ import           NumberSix.Message
 type Log = (String, Handle)
 
 --------------------------------------------------------------------------------
--- | There may be log for multiple channels
-type LogState = Map.Map ByteString Log
+-- | There may be logs for multiple channels
+type LogState = Map.Map Text Log
 
 
 --------------------------------------------------------------------------------
@@ -59,7 +59,7 @@ logHook mvar = onCommand "PRIVMSG" $ do
         logState <- takeMVar mvar
         (logHandle, logState') <- getLog channelLogDir logState channel ymd
 
-        BC.hPutStrLn logHandle $ formatMessage (BC.pack time) sender text
+        T.hPutStrLn logHandle $ formatMessage (Data.Text.pack time) sender text
         IO.hFlush logHandle
 
         putMVar mvar logState'
@@ -68,18 +68,18 @@ logHook mvar = onCommand "PRIVMSG" $ do
 
 --------------------------------------------------------------------------------
 -- | Format the log message
-formatMessage :: ByteString  -- ^ timestamp
-              -> ByteString  -- ^ sender nick
-              -> ByteString  -- ^ message
-              -> ByteString  -- ^ resulting log entry
-formatMessage time sender message = BC.concat ["[", time, "] : (", sender, ") : ", message]
+formatMessage :: Text  -- ^ timestamp
+              -> Text  -- ^ sender nick
+              -> Text  -- ^ message
+              -> Text  -- ^ resulting log entry
+formatMessage time sender message = Data.Text.concat ["[", time, "] : (", sender, ") : ", message]
 
 --------------------------------------------------------------------------------
 -- | Get the handle to the log file for the (channel, date) combo or
 -- open a new log file for that
 getLog :: String                -- ^ Base directory for storing channel logs
        -> LogState              -- ^ Current map between channels and (log name, handle)
-       -> ByteString            -- ^ Channel name
+       -> Text                  -- ^ Channel name
        -> String                -- ^ Date string, i.e., log name
        -> IO (Handle, LogState) -- ^ New mapping
 getLog channelLogBaseDir state channel ymd =
@@ -90,7 +90,7 @@ getLog channelLogBaseDir state channel ymd =
                                       newLog
         Nothing -> newLog
   where newLog = do
-            let logDirectory = joinPath [channelLogBaseDir, BC.unpack channel]
+            let logDirectory = joinPath [channelLogBaseDir, Data.Text.unpack channel]
             createDirectoryIfMissing True logDirectory
             handle <- IO.openFile (joinPath [logDirectory, ymd]) IO.AppendMode
             let state' = Map.alter (\_ -> Just (ymd, handle)) channel state
